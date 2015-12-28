@@ -23,6 +23,7 @@ import io.realm.RealmBasedRecyclerViewAdapter;
 import io.realm.RealmConfiguration;
 import io.realm.RealmResults;
 import io.realm.RealmViewHolder;
+import io.realm.Sort;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -82,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
 
         RealmResults<QuoteModel> quoteModels = realm
                 .where(QuoteModel.class)
-                .findAllSorted("id", (isLoadMore || isBulk) ? true : false);
+                .findAllSorted("id", (isLoadMore || isBulk) ? Sort.ASCENDING : Sort.DESCENDING);
         quoteAdapter = new QuoteRecyclerViewAdapter(
                 getBaseContext(),
                 quoteModels,
@@ -148,6 +149,9 @@ public class MainActivity extends AppCompatActivity {
         } else if (id == R.id.action_bulk_add_two) {
             asyncBulkAddTwo();
             return true;
+        } else if (id == R.id.action_add_footer) {
+            quoteAdapter.addFooter();
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }
@@ -165,12 +169,18 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public class ViewHolder extends RealmViewHolder {
+
             public FrameLayout container;
+
             public TextView quoteTextView;
+
+            public TextView footerTextView;
+
             public ViewHolder(FrameLayout container) {
                 super(container);
                 this.container = container;
                 this.quoteTextView = (TextView) container.findViewById(R.id.quote_text_view);
+                this.footerTextView = (TextView) container.findViewById(R.id.footer_text_view);
             }
         }
 
@@ -209,6 +219,18 @@ public class MainActivity extends AppCompatActivity {
                         colors.get((int) (quoteModel.getId() % colors.size())));
             }
             viewHolder.quoteTextView.setText(quoteModel.getQuote());
+        }
+
+        @Override
+        public void onBindFooterViewHolder(ViewHolder holder, int position) {
+            holder.footerTextView.setText("I'm a footer");
+        }
+
+        @Override
+        public ViewHolder onCreateFooterViewHolder(ViewGroup viewGroup) {
+            View v = inflater.inflate(R.layout.footer_view, viewGroup, false);
+            ViewHolder vh = new ViewHolder((FrameLayout) v);
+            return vh;
         }
     }
 

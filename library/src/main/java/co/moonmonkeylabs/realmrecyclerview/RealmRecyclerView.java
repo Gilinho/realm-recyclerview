@@ -6,11 +6,11 @@ import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.helper.ItemTouchHelper;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.ViewStub;
 import android.widget.FrameLayout;
-import android.widget.Toast;
 
 import com.tonicartos.superslim.LayoutManager;
 
@@ -42,6 +42,7 @@ public class RealmRecyclerView extends FrameLayout {
     private RecyclerView recyclerView;
     private ViewStub emptyContentContainer;
     private RealmBasedRecyclerViewAdapter adapter;
+    private RealmSimpleItemTouchHelperCallback realmSimpleItemTouchHelperCallback;
     private boolean hasLoadMoreFired;
     private boolean showShowLoadMore;
 
@@ -50,6 +51,11 @@ public class RealmRecyclerView extends FrameLayout {
     private int emptyViewId;
     private Type type;
     private int gridSpanCount;
+    private int gridWidthPx;
+    private boolean swipeToDelete;
+
+    private GridLayoutManager gridManager;
+    private int lastMeasuredWidth = -1;
 
     // State
     private boolean isRefreshing;
@@ -71,6 +77,16 @@ public class RealmRecyclerView extends FrameLayout {
     public RealmRecyclerView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
         init(context, attrs);
+    }
+
+    @Override
+    protected void onMeasure(int widthSpec, int heightSpec) {
+        super.onMeasure(widthSpec, heightSpec);
+        if (gridWidthPx != -1 && gridManager != null && lastMeasuredWidth != getMeasuredWidth()) {
+            int spanCount = Math.max(1, getMeasuredWidth() / gridWidthPx);
+            gridManager.setSpanCount(spanCount);
+            lastMeasuredWidth = getMeasuredWidth();
+        }
     }
 
     private void init(Context context, AttributeSet attrs) {
@@ -100,13 +116,24 @@ public class RealmRecyclerView extends FrameLayout {
                 break;
 
             case Grid:
-                if (gridSpanCount == -1) {
-                    throw new IllegalStateException("For GridLayout, a span count has to be set");
+                throwIfSwipeToDeleteEnabled();
+                if (gridSpanCount == -1 && gridWidthPx == -1) {
+                    throw new IllegalStateException(
+                            "For GridLayout, a span count or item width has to be set");
+                } else if(gridSpanCount != -1 && gridWidthPx != -1) {
+                    // This is awkward. Both values are set. Instead of picking one, throw an error.
+                    throw new IllegalStateException(
+                            "For GridLayout, a span count and item width can not both be set");
                 }
-                recyclerView.setLayoutManager(new GridLayoutManager(getContext(), gridSpanCount));
+                // Uses either the provided gridSpanCount or 1 as a placeholder what will be
+                // calculated based on gridWidthPx in onMeasure.
+                int spanCount = gridSpanCount == -1 ? 1 : gridSpanCount;
+                gridManager = new GridLayoutManager(getContext(), spanCount);
+                recyclerView.setLayoutManager(gridManager);
                 break;
 
             case LinearLayoutWithHeaders:
+                throwIfSwipeToDeleteEnabled();
                 recyclerView.setLayoutManager(new LayoutManager(getContext()));
                 break;
 
@@ -137,6 +164,20 @@ public class RealmRecyclerView extends FrameLayout {
                     }
                 }
         );
+
+        if (swipeToDelete) {
+            realmSimpleItemTouchHelperCallback = new RealmSimpleItemTouchHelperCallback();
+            new ItemTouchHelper(realmSimpleItemTouchHelperCallback)
+                    .attachToRecyclerView(recyclerView);
+        }
+    }
+
+    private void throwIfSwipeToDeleteEnabled() {
+        if (!swipeToDelete) {
+            return;
+        }
+        throw new IllegalStateException(
+                "SwipeToDelete not supported with this layout type: " + type.name());
     }
 
     public void setOnLoadMoreListener(OnLoadMoreListener onLoadMoreListener) {
@@ -208,18 +249,28 @@ public class RealmRecyclerView extends FrameLayout {
             type = Type.values()[typeValue];
         }
         gridSpanCount = typedArray.getInt(R.styleable.RealmRecyclerView_rrvGridLayoutSpanCount, -1);
+        gridWidthPx = typedArray
+                .getDimensionPixelSize(R.styleable.RealmRecyclerView_rrvGridLayoutItemWidth, -1);
+        swipeToDelete =
+                typedArray.getBoolean(R.styleable.RealmRecyclerView_rrvSwipeToDelete, false);
         typedArray.recycle();
     }
 
     public void setAdapter(final RealmBasedRecyclerViewAdapter adapter) {
         this.adapter = adapter;
         recyclerView.setAdapter(adapter);
+        if (swipeToDelete) {
+            realmSimpleItemTouchHelperCallback.setAdapter(adapter);
+        }
 
         if (adapter != null) {
             adapter.registerAdapterDataObserver(
                     new RecyclerView.AdapterDataObserver() {
                         @Override
-                        public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
+                        public void onItemRangeMoved(
+                                int fromPosition,
+                                int toPosition,
+                                int itemCount) {
                             super.onItemRangeMoved(fromPosition, toPosition, itemCount);
                             update();
                         }
@@ -263,6 +314,19 @@ public class RealmRecyclerView extends FrameLayout {
         }
         emptyContentContainer.setVisibility(
                 adapter.getItemCount() == 0 ? View.VISIBLE : View.GONE);
+    }
+
+    //
+    // Expose public RecyclerView methods to the RealmRecyclerView
+    //
+    
+    
+    public void setItemViewCacheSize(int size) {
+        recyclerView.setItemViewCacheSize(size);
+    }
+
+    public void smoothScrollToPosition(int position) {
+        recyclerView.smoothScrollToPosition(position);
     }
 
     //
